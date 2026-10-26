@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Állati Memória – Kalandok</title>
+<style>
+:root{--bg:#f5f7ff;--ink:#202642;--accent:#6558d3;--good:#21865a;--card:#fff;--shadow:0 5px 15px #25305b18}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(160deg,#f5f7ff,#eaf8f2);font-family:system-ui,-apple-system,sans-serif;color:var(--ink);min-height:100vh}
+main{max-width:760px;margin:auto;padding:18px 14px 34px}
+header{text-align:center;margin-bottom:16px}
+h1{font-size:clamp(1.55rem,6vw,2.25rem);margin:5px 0;color:#342d7b}
+.subtitle{margin:4px 0 12px;color:#596078}
+.pill{display:inline-block;background:#fff;border-radius:999px;padding:7px 12px;font-size:.9rem;box-shadow:var(--shadow);margin:3px}
+.status{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+.panel{background:#ffffffd9;border:1px solid #e2e5f5;border-radius:18px;padding:14px;box-shadow:var(--shadow);margin:12px 0}
+h2{font-size:1.15rem;margin:0 0 10px}
+#message{text-align:center;min-height:1.6em;font-weight:650;color:#4b458e}
+#board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}
+.card{aspect-ratio:1/1.12;border:0;border-radius:15px;background:linear-gradient(145deg,#7167dc,#4b42ad);color:white;font-size:clamp(1.7rem,7vw,3rem);box-shadow:0 4px 9px #20205024;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;min-width:0}
+.card:focus-visible,button:focus-visible{outline:3px solid #e7a23b;outline-offset:2px}
+.card .face{display:none}
+.card.flipped,.card.matched{background:#fff;color:var(--ink);border:2px solid #c7c2ff}
+.card.flipped .face,.card.matched .face{display:block}
+.card.matched{background:#e3f7ec;border-color:#8dd7ad;cursor:default}
+.card:disabled{cursor:default}
+.controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button.action{border:0;border-radius:12px;padding:11px 14px;background:var(--accent);color:white;font-weight:700;font-size:.98rem;cursor:pointer}
+button.secondary{background:#e8e6fb;color:#342d7b}
+.levels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.level{border:1px solid #deddf5;border-radius:13px;padding:10px;background:#fff;text-align:left;color:var(--ink);cursor:pointer}
+.level strong{display:block}
+.level small{display:block;color:#606783;margin-top:3px}
+.level:disabled{opacity:.48;cursor:not-allowed}
+.level.current{border:2px solid var(--accent);background:#f2f0ff}
+footer{text-align:center;font-size:.84rem;color:#666d82;margin-top:18px}
+@media(min-width:560px){#board{grid-template-columns:repeat(6,minmax(0,1fr))}.levels{grid-template-columns:repeat(4,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>🐾 Állati Memória – Kalandok</h1>
+<p class="subtitle">Találd meg az összes párt, és nyisd meg a következő világot!</p>
+<div class="status">
+<span class="pill" id="levelLabel">1. pálya: Állatkert</span>
+<span class="pill">Lépések: <b id="moves">0</b></span>
+<span class="pill">Párok: <b id="pairs">0</b>/<b id="totalPairs">6</b></span>
+</div>
+</header>
+<section class="panel">
+<h2>🗺️ Pályák</h2>
+<div class="levels" id="levels"></div>
+</section>
+<section class="panel">
+<div id="message" aria-live="polite">Fordíts fel két lapot, és keresd a párokat!</div>
+<div id="board" aria-label="Memóriakártyák"></div>
+<div class="controls" style="margin-top:14px">
+<button class="action" id="restart">Újrakezdés</button>
+<button class="action secondary" id="resetProgress">Haladás törlése</button>
+</div>
+</section>
+<footer>A haladás ezen a telefonon, ebben a böngészőben mentődik. A játék internet nélkül is futtatható a fájl megnyitása után.</footer>
+</main>
+<script>
+const stages = [
+ {name:"Állatkert", theme:"🦁", pairs:["🦁","🐘","🦒","🐒","🦓","🐼"], intro:"1. pálya – Találd meg a 6 állatpárt!"},
+ {name:"Gyümölcsöskert", theme:"🍎", pairs:["🍎","🍌","🍇","🍓","🍉","🍒","🍐","🍍","🥝"], intro:"2. pálya – Keresd meg a 9 gyümölcspárt!"},
+ {name:"Víz alatti világ", theme:"🐠", pairs:["🐠","🐙","🦀","🐬","🐳","🦈","🪼","🦭","🦞","🦑","🐢","🪸","🦐","🐡"], intro:"3. pálya – Találd meg a 14 tengeri párt!"},
+ {name:"Eltűnő kincsek", theme:"💎", pairs:["💎","👑","🪙","🏆","🔑","🧿","💍","🪄"], intro:"4. pálya – Nézd meg a lapokat 5 másodpercig!"}
+];
+const STORE="allatiMemoriaKalandokProgressV1";
+let unlocked=1, stageIndex=0, moves=0, found=0, first=null, second=null, locked=false, cards=[], previewTimer=null;
+const board=document.getElementById("board"), message=document.getElementById("message");
+function saveProgress(){try{localStorage.setItem(STORE,JSON.stringify({unlocked}));}catch(e){}}
+function loadProgress(){try{const d=JSON.parse(localStorage.getItem(STORE)||"{}");unlocked=Math.max(1,Math.min(stages.length,Number(d.unlocked)||1));}catch(e){unlocked=1;}}
+function renderLevels(){
+ const el=document.getElementById("levels");el.innerHTML="";
+ stages.forEach((s,i)=>{const b=document.createElement("button");b.className="level"+(i===stageIndex?" current":"");b.disabled=i+1>unlocked;b.innerHTML=`<strong>${i+1}. ${s.theme} ${s.name}</strong><small>${i+1>unlocked?"🔒 Zárolva":i===stageIndex?"▶ Jelenlegi pálya":"✓ Megnyitva"}</small>`;b.addEventListener("click",()=>startStage(i));el.appendChild(b);});
+}
+function updateStats(){
+ document.getElementById("levelLabel").textContent=`${stageIndex+1}. pálya: ${stages[stageIndex].name}`;
+ document.getElementById("moves").textContent=moves;
+ document.getElementById("pairs").textContent=found;
+ document.getElementById("totalPairs").textContent=stages[stageIndex].pairs.length;
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function startStage(i){
+ if(i+1>unlocked)return;
+ clearTimeout(previewTimer);stageIndex=i;moves=0;found=0;first=null;second=null;locked=false;
+ const s=stages[i];cards=shuffle([...s.pairs,...s.pairs]).map((emoji,index)=>({emoji,index,matched:false,up:false}));
+ board.innerHTML="";board.style.gridTemplateColumns=cards.length>20?"repeat(4,minmax(0,1fr))":cards.length>12?"repeat(4,minmax(0,1fr))":"repeat(4,minmax(0,1fr))";
+ cards.forEach((c,index)=>{
+   const b=document.createElement("button");b.className="card";b.setAttribute("aria-label",`Kártya ${index+1}, lefordítva`);
+   b.innerHTML=`<span class="back">❔</span><span class="face">${c.emoji}</span>`;
+   b.addEventListener("click",()=>flip(index,b));board.appendChild(b);
+ });
+ renderLevels();updateStats();message.textContent=s.intro;
+ if(i===3)beginPreview();
+}
+function beginPreview(){
+ locked=true;message.textContent="Jegyezd meg a lapok helyét! 5 másodperc múlva eltűnnek.";
+ const buttons=[...board.querySelectorAll(".card")];
+ buttons.forEach((b,i)=>{b.classList.add("flipped");b.querySelector(".back").style.display="none";b.setAttribute("aria-label",`Kártya ${i+1}: ${cards[i].emoji}`);});
+ previewTimer=setTimeout(()=>{buttons.forEach((b,i)=>{if(!cards[i].matched){b.classList.remove("flipped");b.querySelector(".back").style.display="";b.setAttribute("aria-label",`Kártya ${i+1}, lefordítva`);}});locked=false;message.textContent="Most keresd meg a párokat emlékezetből!";},5000);
+}
+function flip(i,b){
+ if(locked||cards[i].matched||cards[i].up)return;
+ cards[i].up=true;b.classList.add("flipped");b.querySelector(".back").style.display="none";b.setAttribute("aria-label",`Kártya ${i+1}: ${cards[i].emoji}`);
+ if(!first){first={i,b};return;}
+ second={i,b};moves++;updateStats();locked=true;
+ if(cards[first.i].emoji===cards[second.i].emoji){
+  cards[first.i].matched=cards[second.i].matched=true;found++;first.b.classList.add("matched");second.b.classList.add("matched");
+  first=null;second=null;locked=false;updateStats();
+  if(found===stages[stageIndex].pairs.length){
+   if(stageIndex+1<stages.length){unlocked=Math.max(unlocked,stageIndex+2);saveProgress();renderLevels();message.textContent=`🎉 Ügyes vagy! Teljesítetted ezt a pályát. Megnyílt: ${stages[stageIndex+1].name}!`;}
+   else message.textContent="🏆 Fantasztikus! Mind a négy pályát teljesítetted!";
+  }else message.textContent="Talált pár! Szép munka!";
+ }else{
+  message.textContent="Nem pár. Próbáld újra!";
+  const a=first,c=second;
+  setTimeout(()=>{a.b.classList.remove("flipped");c.b.classList.remove("flipped");a.b.querySelector(".back").style.display="";c.b.querySelector(".back").style.display="";cards[a.i].up=cards[c.i].up=false;a.b.setAttribute("aria-label",`Kártya ${a.i+1}, lefordítva`);c.b.setAttribute("aria-label",`Kártya ${c.i+1}, lefordítva`);first=null;second=null;locked=false;},850);
+ }
+}
+document.getElementById("restart").addEventListener("click",()=>startStage(stageIndex));
+document.getElementById("resetProgress").addEventListener("click",()=>{if(confirm("Biztosan törlöd a megnyitott pályákat?")){unlocked=1;saveProgress();startStage(0);}});
+loadProgress();startStage(0);
+</script>
+</body>
+</html>
